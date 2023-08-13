@@ -4,11 +4,14 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -22,7 +25,13 @@ const (
 
 var (
 	claimRankRegexp   = regexp.MustCompile(`Claims: #([0-9]+)`)
-	kakeraPriceRegexp = regexp.MustCompile(`\*\*([0-9]+)\*\*`)
+	likesRankRegexp   = regexp.MustCompile(`Likes: #([0-9]+)`)
+	kakeraPriceRegexp = regexp.MustCompile(`\*\*([0-9]+)\*\*:kakera`)
+	showTitleRegexp   = regexp.MustCompile(`([^/]+)\n`)
+)
+
+var (
+	showsFrequencies = map[string]map[string]int{}
 )
 
 func main() {
@@ -57,7 +66,10 @@ func main() {
 	csvWriter.Write([]string{
 		"user",
 		"claim_rank",
+		"likes_rank",
 		"kakera_price",
+		"show_title",
+		"wife",
 		"weekday",
 		"hour",
 	})
@@ -68,7 +80,7 @@ func main() {
 	}
 
 	log.Println("starting to process...")
-	mudae, eligible := int64(0), int64(0)
+	mudae, hadClaim, hadLikes, hadKakera := int64(0), int64(0), int64(0), int64(0)
 	for _, message := range export.Messages {
 		// Only look for Mudae's responses.
 		if message.Author.ID != MudaeID {
@@ -85,37 +97,65 @@ func main() {
 
 		mudae++
 
-		claimRank := extractFirstGroup(
-			claimRankRegexp,
-			message.Embeds[0].Description,
-		)
+		embed := message.Embeds[0]
+		description := embed.Description
+		user := message.Interaction.User.Name
+		claimRank := extractProperty(claimRankRegexp, description, &hadClaim)
+		likesRank := extractProperty(likesRankRegexp, description, &hadLikes)
+		kakeraPrice := extractProperty(kakeraPriceRegexp, description, &hadKakera)
 
-		kakeraPrice := extractFirstGroup(
-			kakeraPriceRegexp,
-			message.Embeds[0].Description,
-		)
-
-		if claimRank == "" || kakeraPrice == "" {
-			continue
+		showTitle := extractProperty(showTitleRegexp, description, nil)
+		if _, ok := showsFrequencies[user]; !ok {
+			showsFrequencies[user] = map[string]int{}
+		}
+		if len(strings.TrimSpace(showTitle)) > 0 {
+			showsFrequencies[user][showTitle]++
 		}
 
 		centralTime := message.Timestamp.In(loc)
-
-		eligible++
 		csvWriter.Write([]string{
-			message.Interaction.User.Name,
+			user,
 			claimRank,
+			likesRank,
 			kakeraPrice,
+			showTitle,
+			embed.Author.Name,
 			centralTime.Weekday().String(),
 			strconv.Itoa(centralTime.Hour()),
 		})
 
 	}
 	log.Printf("processed %s mudae messages", humanize.Comma(mudae))
-	log.Printf("only %s were eligible for export", humanize.Comma(eligible))
+	log.Printf("only %s had claim rank information", humanize.Comma(hadClaim))
+	log.Printf("only %s had likes rank information", humanize.Comma(hadLikes))
+	log.Printf("only %s had kakera price information", humanize.Comma(hadKakera))
 	csvWriter.Flush()
 	output.Close()
 
+	for user, shows := range showsFrequencies {
+		showsArray := make([]string, 0, len(showsFrequencies))
+		for key := range shows {
+			showsArray = append(showsArray, key)
+		}
+		sort.SliceStable(showsArray, func(i, j int) bool {
+			return shows[showsArray[i]] > shows[showsArray[j]]
+		})
+
+		fmt.Println(user)
+		for i := 0; i < 10; i++ {
+			fmt.Println(showsArray[i], shows[showsArray[i]])
+		}
+		fmt.Println("------------")
+	}
+
+}
+
+func extractProperty(pattern *regexp.Regexp, what string, counter *int64) string {
+	extracted := extractFirstGroup(pattern, what)
+	if counter != nil && extracted != "" {
+		(*counter)++
+	}
+	return extracted
 }
 
 func extractFirstGroup(pattern *regexp.Regexp, what string) string {
