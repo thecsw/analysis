@@ -33,9 +33,9 @@ const (
 
 var (
 	// Regexp to extract the claim rank from the embed description.
-	claimRankRegexp = regexp.MustCompile(`(?U)Claims: #([0-9]+)`)
+	claimRankRegexp = regexp.MustCompile(`(?U)Claims: #([0-9]+)[^0-9]`)
 	// Regexp to extract the likes rank from the embed description.
-	likesRankRegexp = regexp.MustCompile(`(?U)Likes: #([0-9]+)`)
+	likesRankRegexp = regexp.MustCompile(`(?U)Likes: #([0-9]+)[^0-9]`)
 	// Regexp to extract the kakera price from the embed description.
 	kakeraPriceRegexp = regexp.MustCompile(`(?U)\*\*([0-9]+)\*\*:kakera`)
 	// Regexp to extract the show title from the embed description.
@@ -59,6 +59,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("opening %s: %v", *exportFilename, err)
 	}
+
+	// Set a custom output filename.
+	*outputFilename = strings.Replace(path.Base(*exportFilename), ".json", ".csv", 1)
 
 	// Deserialize the export.
 	log.Printf("starting to deserialize: %s", path.Base(*exportFilename))
